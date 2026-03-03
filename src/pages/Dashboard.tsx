@@ -1,7 +1,7 @@
-import React, { useCallback, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DollarSign, PiggyBank, Clock, AlertTriangle } from 'lucide-react';
-import { getOrders } from '../lib/db';
+import { useOrders } from '../hooks/useDatabase';
 import type { OrderStatus } from '../types';
 import {
     BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -25,12 +25,10 @@ type TimeFilter = 'today' | 'this_week' | 'this_month' | 'all';
 
 export default function Dashboard() {
     const navigate = useNavigate();
-    const [, setTick] = useState(0);
-    const refresh = useCallback(() => setTick(t => t + 1), []);
 
     const [timeFilter, setTimeFilter] = useState<TimeFilter>('today');
 
-    const orders = getOrders();
+    const { orders } = useOrders();
     const timeFrame = useMemo(() => {
         const d = new Date();
         d.setHours(0, 0, 0, 0);
@@ -181,7 +179,7 @@ export default function Dashboard() {
             </div>
 
             {/* Row 1: Stats Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {statCards.map(card => (
                     <div key={card.label} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                         <div className="flex items-start justify-between mb-3">
@@ -197,7 +195,7 @@ export default function Dashboard() {
             </div>
 
             {/* Row 2: Status Cards (clickable) */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {STATUS_COLUMNS.map(col => (
                     <button
                         key={col.status}

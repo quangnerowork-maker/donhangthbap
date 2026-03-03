@@ -1,21 +1,22 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Settings as SettingsIcon, Plus, X, Tag, Layers } from 'lucide-react';
-import { getSettings, saveSettings } from '../lib/db';
+import { saveSettings } from '../lib/db';
+import { useSettings } from '../hooks/useDatabase';
 import type { AppSettings } from '../types';
 import toast from 'react-hot-toast';
 
 export default function Settings() {
-    const [settings, setSettings] = useState<AppSettings>(() => getSettings());
+    const { settings, loading } = useSettings();
     const [newSource, setNewSource] = useState('');
     const [newProductType, setNewProductType] = useState('');
 
-    const persist = useCallback((updated: AppSettings) => {
-        saveSettings(updated);
-        setSettings(updated);
+    const persist = useCallback(async (updated: AppSettings) => {
+        await saveSettings(updated);
         toast.success('Đã lưu thay đổi');
     }, []);
 
     function addSource() {
+        if (!settings) return;
         const val = newSource.trim();
         if (!val) return;
         if (settings.sources.includes(val)) {
@@ -27,10 +28,12 @@ export default function Settings() {
     }
 
     function removeSource(s: string) {
+        if (!settings) return;
         persist({ ...settings, sources: settings.sources.filter(x => x !== s) });
     }
 
     function addProductType() {
+        if (!settings) return;
         const val = newProductType.trim();
         if (!val) return;
         if (settings.productTypes.includes(val)) {
@@ -42,8 +45,17 @@ export default function Settings() {
     }
 
     function removeProductType(t: string) {
+        if (!settings) return;
         persist({ ...settings, productTypes: settings.productTypes.filter(x => x !== t) });
     }
+
+    if (loading) return (
+        <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-gray-400 animate-pulse">Đang tải cài đặt...</div>
+        </div>
+    );
+
+    if (!settings) return null;
 
     return (
         <div className="max-w-2xl mx-auto p-6">
@@ -85,20 +97,20 @@ export default function Settings() {
                         )}
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                         <input
                             type="text"
                             value={newSource}
                             onChange={e => setNewSource(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && addSource()}
-                            placeholder="Thêm nguồn mới (VD: TikTok)..."
-                            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            placeholder="Thêm nguồn mới..."
+                            className="flex-1 border border-gray-200 rounded-xl px-4 h-11 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                         />
                         <button
                             onClick={addSource}
-                            className="flex items-center gap-1.5 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-xl transition-colors"
+                            className="flex items-center justify-center gap-1.5 px-6 h-11 bg-blue-500 hover:bg-blue-600 text-white text-sm font-bold rounded-xl transition-colors"
                         >
-                            <Plus size={14} />
+                            <Plus size={16} />
                             Thêm
                         </button>
                     </div>
@@ -131,20 +143,20 @@ export default function Settings() {
                         )}
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                         <input
                             type="text"
                             value={newProductType}
                             onChange={e => setNewProductType(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && addProductType()}
-                            placeholder="Thêm loại mới (VD: Lẵng hoa)..."
-                            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
+                            placeholder="Thêm loại mới..."
+                            className="flex-1 border border-gray-200 rounded-xl px-4 h-11 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
                         />
                         <button
                             onClick={addProductType}
-                            className="flex items-center gap-1.5 px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white text-sm font-medium rounded-xl transition-colors"
+                            className="flex items-center justify-center gap-1.5 px-6 h-11 bg-pink-500 hover:bg-pink-600 text-white text-sm font-bold rounded-xl transition-colors"
                         >
-                            <Plus size={14} />
+                            <Plus size={16} />
                             Thêm
                         </button>
                     </div>

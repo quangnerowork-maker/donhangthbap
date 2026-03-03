@@ -1,5 +1,4 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './contexts/AuthContext';
 import AuthGuard from './components/AuthGuard';
@@ -10,14 +9,13 @@ import Employees from './pages/Employees';
 import CreateOrder from './pages/CreateOrder';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
-import { seedIfEmpty } from './lib/seed';
+// Firebase initialization is handled by imports in db.ts
+// seedIfEmpty() is no longer needed for local storage
 
-// Seed on first load
-seedIfEmpty();
 
 function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <AuthProvider>
         <Toaster
           position="top-right"
@@ -41,7 +39,7 @@ function App() {
             <Route
               index
               element={
-                <AuthGuard adminOnly>
+                <AuthGuard adminOrLeadOnly>
                   <Dashboard />
                 </AuthGuard>
               }
@@ -50,7 +48,7 @@ function App() {
             <Route
               path="create"
               element={
-                <AuthGuard floristDisallowed>
+                <AuthGuard adminOrLeadOnly>
                   <CreateOrder />
                 </AuthGuard>
               }
@@ -75,7 +73,7 @@ function App() {
           </Route>
         </Routes>
       </AuthProvider>
-    </BrowserRouter>
+    </Router>
   );
 }
 

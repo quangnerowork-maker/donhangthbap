@@ -1,76 +1,79 @@
-import type { Order, Employee, AppSettings } from '../types';
+import { db } from './firebase';
+import {
+    collection,
+    getDocs,
+    getDoc,
+    setDoc,
+    doc,
+    deleteDoc,
+    onSnapshot
+} from 'firebase/firestore';
+import type { Order, Employee, AppSettings, EmployeeRole } from '../types';
 
-const ORDERS_KEY = 'thb_orders';
-const EMPLOYEES_KEY = 'thb_employees';
+const ORDERS_COL = 'orders';
+const EMPLOYEES_COL = 'employees';
+const SETTINGS_COL = 'settings';
 const SESSION_KEY = 'thb_session';
-const SETTINGS_KEY = 'thb_settings';
 
 // ─── ORDERS ────────────────────────────────────────────────
-export function getOrders(): Order[] {
-    try {
-        const raw = localStorage.getItem(ORDERS_KEY);
-        return raw ? JSON.parse(raw) : [];
-    } catch {
-        return [];
-    }
+// Note: We'll use a snapshot-based hook later for the UI.
+// These are direct one-off async getters.
+export async function getOrders(): Promise<Order[]> {
+    const querySnapshot = await getDocs(collection(db, ORDERS_COL));
+    return querySnapshot.docs.map(doc => doc.data() as Order);
 }
 
-export function saveOrder(order: Order): void {
-    const orders = getOrders();
-    orders.push(order);
-    localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+export async function saveOrder(order: Order): Promise<void> {
+    await setDoc(doc(db, ORDERS_COL, order.id), order);
 }
 
-export function updateOrder(updated: Order): void {
-    const orders = getOrders().map(o => o.id === updated.id ? updated : o);
-    localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+export async function updateOrder(updated: Order): Promise<void> {
+    const orderRef = doc(db, ORDERS_COL, updated.id);
+    await setDoc(orderRef, updated);
 }
 
-export function deleteOrder(id: string): void {
-    const orders = getOrders().filter(o => o.id !== id);
-    localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
-}
-
-export function setOrders(orders: Order[]): void {
-    localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+export async function deleteOrder(id: string): Promise<void> {
+    await deleteDoc(doc(db, ORDERS_COL, id));
 }
 
 // ─── EMPLOYEES ─────────────────────────────────────────────
-export function getEmployees(): Employee[] {
-    try {
-        const raw = localStorage.getItem(EMPLOYEES_KEY);
-        return raw ? JSON.parse(raw) : [];
-    } catch {
-        return [];
-    }
+export async function getEmployees(): Promise<Employee[]> {
+    const querySnapshot = await getDocs(collection(db, EMPLOYEES_COL));
+    return querySnapshot.docs.map(doc => doc.data() as Employee);
 }
 
-export function saveEmployee(emp: Employee): void {
-    const emps = getEmployees();
-    emps.push(emp);
-    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(emps));
+export async function saveEmployee(emp: Employee): Promise<void> {
+    await setDoc(doc(db, EMPLOYEES_COL, emp.id), emp);
 }
 
-export function updateEmployee(updated: Employee): void {
-    const emps = getEmployees().map(e => e.id === updated.id ? updated : e);
-    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(emps));
+export async function updateEmployee(updated: Employee): Promise<void> {
+    await setDoc(doc(db, EMPLOYEES_COL, updated.id), updated);
 }
 
-export function deleteEmployee(id: string): void {
-    const emps = getEmployees().filter(e => e.id !== id);
-    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(emps));
-}
-
-export function setEmployees(emps: Employee[]): void {
-    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(emps));
+export async function deleteEmployee(id: string): Promise<void> {
+    await deleteDoc(doc(db, EMPLOYEES_COL, id));
 }
 
 // ─── AUTH / SESSION ─────────────────────────────────────────
-export function login(username: string, password: string): Employee | null {
-    const emps = getEmployees();
+// For login, we still fetch all employees and find locally (since it's a small shop management tool)
+export async function login(username: string, password: string): Promise<Employee | null> {
+    const querySnapshot = await getDocs(collection(db, EMPLOYEES_COL));
+    const emps = querySnapshot.docs.map(doc => doc.data() as Employee);
+
+    // Find matching credentials (trim username and be case-insensitive for username)
     const found = emps.find(
-        e => e.username === username.trim() && e.password === password
+        e => e.username.toLowerCase() === username.trim().toLowerCase() && e.password === password
     );
+
+    // CRITICAL FIX: Ensure 'admin' user always has the 'admin' role and isAdmin flag
+    if (found && found.username.toLowerCase() === 'admin') {
+        if (found.role !== 'admin' || !found.isAdmin) {
+            const updatedAdmin = { ...found, role: 'admin' as EmployeeRole, isAdmin: true };
+            await updateEmployee(updatedAdmin);
+            return updatedAdmin;
+        }
+    }
+
     return found ?? null;
 }
 
@@ -97,36 +100,62 @@ const DEFAULT_SETTINGS: AppSettings = {
     productTypes: ['Bó hoa', 'Giỏ hoa', 'Kệ hoa', 'Khác'],
 };
 
-export function getSettings(): AppSettings {
-    try {
-        const raw = localStorage.getItem(SETTINGS_KEY);
-        return raw ? JSON.parse(raw) : DEFAULT_SETTINGS;
-    } catch {
-        return DEFAULT_SETTINGS;
+export async function getSettings(): Promise<AppSettings> {
+    const docSnap = await getDoc(doc(db, SETTINGS_COL, 'global'));
+    if (docSnap.exists()) {
+        return docSnap.data() as AppSettings;
     }
+    return DEFAULT_SETTINGS;
 }
 
-export function saveSettings(settings: AppSettings): void {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+export async function saveSettings(settings: AppSettings): Promise<void> {
+    await setDoc(doc(db, SETTINGS_COL, 'global'), settings);
 }
 
-export function initSettings(): void {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(DEFAULT_SETTINGS));
+export async function initSettings(): Promise<void> {
+    const docRef = doc(db, SETTINGS_COL, 'global');
+    const docSnap = await getDoc(docRef);
+    if (!docSnap.exists()) {
+        await setDoc(docRef, DEFAULT_SETTINGS);
     }
 }
 
 // ─── ORDER ID GENERATOR ────────────────────────────────────
-export function generateOrderId(): string {
+// This needs to be async now because it depends on existing orders
+export async function generateOrderId(): Promise<string> {
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
     const prefix = `${yyyy}${mm}${dd}`;
 
-    const orders = getOrders();
+    const orders = await getOrders();
     const todaysOrders = orders.filter(o => o.id.startsWith(prefix));
     const seq = String(todaysOrders.length + 1).padStart(3, '0');
     return `${prefix}-${seq}`;
+}
+
+// --- REAL-TIME LISTENERS ---
+export function subscribeToOrders(callback: (orders: Order[]) => void) {
+    return onSnapshot(collection(db, ORDERS_COL), (snapshot) => {
+        const orders = snapshot.docs.map(doc => doc.data() as Order);
+        callback(orders);
+    });
+}
+
+export function subscribeToEmployees(callback: (employees: Employee[]) => void) {
+    return onSnapshot(collection(db, EMPLOYEES_COL), (snapshot) => {
+        const emps = snapshot.docs.map(doc => doc.data() as Employee);
+        callback(emps);
+    });
+}
+
+export function subscribeToSettings(callback: (settings: AppSettings) => void) {
+    return onSnapshot(doc(db, SETTINGS_COL, 'global'), (docSnap) => {
+        if (docSnap.exists()) {
+            callback(docSnap.data() as AppSettings);
+        } else {
+            callback(DEFAULT_SETTINGS);
+        }
+    });
 }

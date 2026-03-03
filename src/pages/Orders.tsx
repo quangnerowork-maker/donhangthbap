@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { PlusCircle, Filter, LayoutGrid, List, ChevronDown } from 'lucide-react';
-import { getOrders, getEmployees, updateOrder } from '../lib/db';
+import { PlusCircle, Filter, LayoutGrid, List } from 'lucide-react';
+import { updateOrder } from '../lib/db';
+import { useOrders, useEmployees } from '../hooks/useDatabase';
 import type { Order, OrderStatus } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import OrderDetailModal from '../components/OrderDetailModal';
@@ -59,7 +60,7 @@ interface DroppableColumnProps {
 function DroppableColumn({ id, children, col, count, isSelected, onClickFilters }: DroppableColumnProps) {
     const { setNodeRef, isOver } = useDroppable({ id });
     return (
-        <div className="flex-1 flex flex-col min-w-[200px]" onClick={onClickFilters}>
+        <div className="flex-1 flex flex-col min-w-[280px] sm:min-w-[320px]" onClick={onClickFilters}>
             {/* Header */}
             <div className={clsx(
                 'flex items-center justify-between px-3 py-2 rounded-t-xl transition-colors cursor-pointer',
@@ -197,8 +198,18 @@ export default function Orders() {
     const [sortAsc, setSortAsc] = useState(true);
 
 
-    const [orders, setOrdersState] = useState<Order[]>([]);
-    const [employees, setEmployees] = useState<{ id: string, name: string, role: string }[]>([]);
+    const { orders: allOrders } = useOrders();
+    const { employees: allEmployees } = useEmployees();
+
+    const orders = useMemo(() => {
+        if (user?.role === 'florist') {
+            return allOrders.filter(o => o.floristId === user.id);
+        }
+        return allOrders;
+    }, [allOrders, user]);
+
+    const employees = allEmployees;
+
     const [activeOrder, setActiveOrder] = useState<Order | null>(null);
     const [selectedOrderForModal, setSelectedOrderForModal] = useState<Order | null>(null);
 
@@ -208,19 +219,6 @@ export default function Orders() {
         const interval = setInterval(() => setNowTick(Date.now()), 60000);
         return () => clearInterval(interval);
     }, []);
-
-    const loadData = useCallback(() => {
-        let allOrders = getOrders();
-        if (user?.role === 'florist') {
-            allOrders = allOrders.filter(o => o.floristId === user.id);
-        }
-        setOrdersState(allOrders);
-        setEmployees(getEmployees());
-    }, [user]);
-
-    useEffect(() => {
-        loadData();
-    }, [loadData]);
 
     const employeeMap = useMemo(() =>
         Object.fromEntries(employees.map(e => [e.id, e.name])),
@@ -248,16 +246,10 @@ export default function Orders() {
         if (ord) setActiveOrder(ord);
     }
 
-    function handleStatusChange(orderId: string, newStatus: OrderStatus) {
-        const orderIndex = orders.findIndex(o => o.id === orderId);
-        if (orderIndex === -1) return;
-        const currentOrder = orders[orderIndex];
-
-        if (currentOrder.status !== newStatus) {
-            const newOrders = [...orders];
-            newOrders[orderIndex] = { ...currentOrder, status: newStatus };
-            setOrdersState(newOrders);
-            updateOrder(newOrders[orderIndex]);
+    async function handleStatusChange(orderId: string, newStatus: OrderStatus) {
+        const order = orders.find(o => o.id === orderId);
+        if (order && order.status !== newStatus) {
+            await updateOrder({ ...order, status: newStatus });
         }
     }
 
@@ -322,120 +314,138 @@ export default function Orders() {
     return (
         <div className="flex flex-col h-full bg-gray-50">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-100 shrink-0">
-                <div>
-                    <h1 className="text-xl font-bold text-gray-900">Quản Lý Đơn Hàng</h1>
-                    <p className="text-xs text-gray-400 mt-0.5">Tổng {filteredOrders.length} đơn hàng</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    {/* Status Clear Button (if filtered from Dashboard) */}
-                    {qsStatus && (
-                        <button
-                            onClick={() => setSearchParams({})}
-                            className="text-[10px] text-pink-600 font-semibold px-2 py-1 bg-pink-50 rounded-lg hover:bg-pink-100 transition-colors"
-                        >
-                            Hiển thị tất cả trạng thái
-                        </button>
-                    )}
-
-                    {/* Search & Select Filters */}
-                    <div className="flex items-center gap-2 mr-2">
-                        <input
-                            type="text"
-                            placeholder="Tìm mã, Tên KH..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-40 border border-gray-200 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition-all"
-                        />
-                        <select
-                            value={floristFilter}
-                            onChange={(e) => setFloristFilter(e.target.value)}
-                            className="w-28 border border-gray-200 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 bg-white cursor-pointer"
-                        >
-                            <option value="all">Mọi Thợ</option>
-                            {florists.map(f => (
-                                <option key={f.id} value={f.id}>{f.name}</option>
-                            ))}
-                        </select>
-                        <select
-                            value={dispatcherFilter}
-                            onChange={(e) => setDispatcherFilter(e.target.value)}
-                            className="w-28 border border-gray-200 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-pink-400 bg-white cursor-pointer"
-                        >
-                            <option value="all">Mọi Vận đơn</option>
-                            {dispatchers.map(d => (
-                                <option key={d.id} value={d.id}>{d.name}</option>
-                            ))}
-                        </select>
+            {/* Header / Toolbar */}
+            <div className="flex flex-col gap-4 p-4 md:p-6 bg-white border-b border-gray-100 shrink-0">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h1 className="text-xl font-bold text-gray-900">Quản Lý Đơn Hàng</h1>
+                        <p className="text-xs text-gray-400 mt-0.5">Tổng {filteredOrders.length} đơn hàng</p>
                     </div>
-
-                    {/* Date Filter */}
-                    <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-                        <Filter size={13} className="text-gray-400 ml-1" />
-                        {filterLabels.map(f => (
-                            <button
-                                key={f.key}
-                                onClick={() => { setFilter(f.key); setSelectedDate(''); }}
-                                className={clsx(
-                                    'px-3 py-1 rounded-lg text-xs font-medium transition-all',
-                                    filter === f.key && !selectedDate ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                                )}
-                            >
-                                {f.label}
-                            </button>
-                        ))}
-                        <input
-                            type="date"
-                            value={selectedDate}
-                            onChange={(e) => {
-                                setSelectedDate(e.target.value);
-                                setFilter('custom');
-                            }}
-                            className={clsx(
-                                "border border-transparent bg-transparent text-xs text-gray-600 focus:outline-none focus:ring-1 focus:ring-pink-400 rounded transition-all ml-1 cursor-pointer",
-                                selectedDate && filter === 'custom' && "font-bold text-gray-900 bg-white shadow-sm ring-1 ring-pink-400"
-                            )}
-                        />
-                    </div>
-
-                    {/* View Toggle */}
-                    <div className="flex bg-gray-100 rounded-xl p-1 mr-2 shrink-0">
-                        <button
-                            onClick={() => setViewMode('board')}
-                            className={clsx('p-1.5 rounded-lg transition-colors', viewMode === 'board' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900')}
-                            title="Board View"
-                        >
-                            <LayoutGrid size={15} />
-                        </button>
-                        <button
-                            onClick={() => setViewMode('table')}
-                            className={clsx('p-1.5 rounded-lg transition-colors', viewMode === 'table' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900')}
-                            title="List View"
-                        >
-                            <List size={15} />
-                        </button>
-                    </div>
-
                     <button
                         onClick={() => navigate('/create')}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-medium rounded-xl transition-colors"
+                        className="flex items-center gap-1.5 px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white text-xs font-medium rounded-xl transition-colors md:hidden"
                     >
-                        <PlusCircle size={13} />
+                        <PlusCircle size={14} />
+                        Tạo mới
+                    </button>
+                    {/* Desktop Create Button */}
+                    <button
+                        onClick={() => navigate('/create')}
+                        className="hidden md:flex items-center gap-1.5 px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-xl transition-colors"
+                    >
+                        <PlusCircle size={16} />
                         Tạo đơn mới
                     </button>
+                </div>
+
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        {/* Search */}
+                        <div className="relative flex-1">
+                            <input
+                                type="text"
+                                placeholder="Tìm mã, Tên KH..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full sm:w-48 border border-gray-200 rounded-xl px-3 h-10 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 transition-all"
+                            />
+                        </div>
+
+                        {/* Staff Filters */}
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={floristFilter}
+                                onChange={(e) => setFloristFilter(e.target.value)}
+                                className="flex-1 sm:w-32 border border-gray-200 rounded-xl px-2 h-10 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 bg-white cursor-pointer"
+                            >
+                                <option value="all">Mọi Thợ</option>
+                                {florists.map(f => (
+                                    <option key={f.id} value={f.id}>{f.name}</option>
+                                ))}
+                            </select>
+                            <select
+                                value={dispatcherFilter}
+                                onChange={(e) => setDispatcherFilter(e.target.value)}
+                                className="flex-1 sm:w-32 border border-gray-200 rounded-xl px-2 h-10 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 bg-white cursor-pointer"
+                            >
+                                <option value="all">Mọi Vận đơn</option>
+                                {dispatchers.map(d => (
+                                    <option key={d.id} value={d.id}>{d.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        {/* Date Filter */}
+                        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 overflow-x-auto no-scrollbar">
+                            {filterLabels.map(f => (
+                                <button
+                                    key={f.key}
+                                    onClick={() => { setFilter(f.key); setSelectedDate(''); }}
+                                    className={clsx(
+                                        'px-3 h-8 flex items-center shrink-0 rounded-lg text-xs font-medium transition-all',
+                                        filter === f.key && !selectedDate ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                                    )}
+                                >
+                                    {f.label}
+                                </button>
+                            ))}
+                            <input
+                                type="date"
+                                value={selectedDate}
+                                onChange={(e) => {
+                                    setSelectedDate(e.target.value);
+                                    setFilter('custom');
+                                }}
+                                className={clsx(
+                                    "border-none bg-transparent text-xs text-gray-600 focus:outline-none rounded h-8 px-2 transition-all cursor-pointer shrink-0",
+                                    selectedDate && filter === 'custom' && "font-bold text-gray-900 bg-white shadow-sm ring-1 ring-pink-400"
+                                )}
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            {/* View Toggle */}
+                            <div className="flex bg-gray-100 rounded-xl p-1 shrink-0">
+                                <button
+                                    onClick={() => setViewMode('board')}
+                                    className={clsx('w-10 h-8 flex items-center justify-center rounded-lg transition-colors', viewMode === 'board' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900')}
+                                >
+                                    <LayoutGrid size={16} />
+                                </button>
+                                <button
+                                    onClick={() => setViewMode('table')}
+                                    className={clsx('w-10 h-8 flex items-center justify-center rounded-lg transition-colors', viewMode === 'table' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900')}
+                                >
+                                    <List size={16} />
+                                </button>
+                            </div>
+
+                            {/* Status Clear Button (mobile friendly) */}
+                            {qsStatus && (
+                                <button
+                                    onClick={() => setSearchParams({})}
+                                    className="flex-1 sm:flex-none text-[10px] text-pink-600 font-semibold px-3 h-10 bg-pink-50 rounded-xl hover:bg-pink-100 transition-colors whitespace-nowrap"
+                                >
+                                    Tất cả trạng thái
+                                </button>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
 
             {/* Content Area */}
             {viewMode === 'board' ? (
-                <div className="flex-1 overflow-x-auto p-4">
+                <div className="flex-1 overflow-x-auto p-4 md:p-6 lg:p-8">
                     <DndContext
                         sensors={sensors}
                         collisionDetection={closestCorners}
                         onDragStart={handleDragStart}
                         onDragEnd={handleDragEnd}
                     >
-                        <div className="flex gap-4 h-full min-w-[800px]">
+                        <div className="flex gap-4 h-full min-w-max pb-4">
                             {COLUMNS.map(col => {
                                 let colOrders = filteredOrders.filter(o => o.status === col.status);
                                 colOrders.sort((a, b) => new Date(a.deliveryDateTime).getTime() - new Date(b.deliveryDateTime).getTime());
@@ -445,7 +455,7 @@ export default function Orders() {
 
                                 return (
                                     <div key={col.status} className={clsx(
-                                        "flex-1 flex flex-col min-w-[200px] transition-opacity duration-300",
+                                        "w-[280px] sm:w-[320px] flex flex-col transition-opacity duration-300",
                                         isDimmed ? "opacity-40 grayscale-[50%]" : "opacity-100"
                                     )}>
                                         <DroppableColumn
@@ -490,9 +500,9 @@ export default function Orders() {
                     </DndContext>
                 </div>
             ) : (
-                <div className="flex-1 p-6 overflow-y-auto">
-                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-                        <table className="w-full text-left border-collapse">
+                <div className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
+                        <table className="w-full text-left border-collapse min-w-[800px]">
                             <thead>
                                 <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
                                     <th className="px-6 py-4 font-medium">Mã Đơn & Khách</th>
@@ -606,7 +616,7 @@ export default function Orders() {
                 <OrderDetailModal
                     order={selectedOrderForModal}
                     onClose={() => setSelectedOrderForModal(null)}
-                    onSaved={loadData}
+                    onSaved={() => { }}
                 />
             )}
         </div>

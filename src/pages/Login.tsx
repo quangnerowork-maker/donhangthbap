@@ -17,24 +17,26 @@ export default function Login() {
         return <Navigate to={isAdmin ? '/' : '/orders'} replace />;
     }
 
-    function handleSubmit(e: React.FormEvent) {
+    async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         if (!username.trim() || !password) {
             toast.error('Vui lòng nhập đầy đủ thông tin');
             return;
         }
         setLoading(true);
-        setTimeout(() => {
-            const success = login(username, password);
+        try {
+            const loggedInUser = await login(username, password);
             setLoading(false);
-            if (success) {
+            if (loggedInUser) {
                 toast.success('Đăng nhập thành công! 🌸');
-                const authed = JSON.parse(localStorage.getItem('thb_session') || 'null');
-                navigate(authed?.isAdmin ? '/' : '/orders', { replace: true });
+                navigate(loggedInUser.isAdmin ? '/' : '/orders', { replace: true });
             } else {
                 toast.error('Sai tên đăng nhập hoặc mật khẩu');
             }
-        }, 300);
+        } catch (err) {
+            setLoading(false);
+            toast.error('Lỗi hệ thống khi đăng nhập');
+        }
     }
 
     return (
@@ -104,11 +106,7 @@ export default function Login() {
                         </button>
                     </form>
 
-                    <div className="mt-6 pt-5 border-t border-gray-100">
-                        <p className="text-xs text-gray-400 text-center">
-                            Tài khoản quản trị: <span className="font-mono text-gray-600">admin / 123</span>
-                        </p>
-                    </div>
+                    {/* Admin credentials removed for security */}
                 </div>
             </div>
         </div>

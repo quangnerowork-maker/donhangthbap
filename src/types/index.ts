@@ -1,5 +1,5 @@
 export type OrderStatus = 'new' | 'in_progress' | 'delivering' | 'completed';
-export type EmployeeRole = 'florist' | 'lead_florist' | 'dispatcher';
+export type EmployeeRole = 'admin' | 'lead_florist' | 'florist' | 'dispatcher';
 
 export interface Order {
     id: string;

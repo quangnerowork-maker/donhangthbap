@@ -1,21 +1,29 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Upload } from 'lucide-react';
-import { saveOrder, generateOrderId, getEmployees, getSettings } from '../lib/db';
-import type { EmployeeRole, AppSettings } from '../types';
+import { saveOrder, generateOrderId } from '../lib/db';
+import { useSettings, useEmployees } from '../hooks/useDatabase';
 import { useAuth } from '../contexts/AuthContext';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 
 function inputClass(hasError?: boolean) {
     return clsx(
-        'w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition-shadow',
+        'w-full border rounded-xl px-4 h-11 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition-all shadow-sm',
         hasError ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-white'
     );
 }
 
+function selectClass(hasError?: boolean) {
+    return clsx(
+        inputClass(hasError),
+        'appearance-none bg-no-repeat bg-[length:16px] bg-[right_12px_center]',
+        "bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%20d%3D%22m6%208%204%204%204-4%22%2F%3E%3C%2Fsvg%3E')]"
+    );
+}
+
 function labelClass() {
-    return 'block text-xs font-medium text-gray-600 mb-1.5';
+    return 'block text-[12px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider';
 }
 
 function formatCurrency(val: string): string {
@@ -28,19 +36,18 @@ export default function CreateOrder() {
     const navigate = useNavigate();
     const fileRef = useRef<HTMLInputElement>(null);
 
-    const [settings, setSettings] = useState<AppSettings | null>(null);
-    const orderId = useRef(generateOrderId()).current;
+    const [orderId, setOrderId] = useState<string>('');
+    const { settings, loading: settingsLoading } = useSettings();
+    const { employees: allEmployees, loading: empsLoading } = useEmployees();
+
+    useEffect(() => {
+        generateOrderId().then(setOrderId);
+    }, []);
 
     const { user } = useAuth();
 
-    // Using refs or state for static collections is fine. State for settings:
-    const employees = getEmployees();
-    const florists = employees.filter(e => e.role === 'florist' || e.role === 'lead_florist');
-    const dispatchers = employees.filter(e => e.role === 'dispatcher');
-
-    useEffect(() => {
-        setSettings(getSettings());
-    }, []);
+    const florists = allEmployees.filter(e => e.role === 'florist' || e.role === 'lead_florist');
+    const dispatchers = allEmployees.filter(e => e.role === 'dispatcher');
 
     const now = new Date();
     const defaultDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -55,7 +62,8 @@ export default function CreateOrder() {
         orderValue: '', // Store as string for input masking
         deposit: '',     // Store as string for input masking
         deliveryDate: defaultDate,
-        deliveryTime: '',
+        deliveryHour: '',
+        deliveryMinute: '',
         notes: '',
         floristId: '',
         shipperId: '',
@@ -63,6 +71,7 @@ export default function CreateOrder() {
     });
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [dragOver, setDragOver] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
 
     // Init form defaults once settings load
     useEffect(() => {
@@ -93,7 +102,7 @@ export default function CreateOrder() {
         if (!rawValue || rawValue <= 0) e.orderValue = 'Giá trị phải > 0';
 
         if (!form.deliveryDate) e.deliveryDate = 'Bắt buộc';
-        if (!form.deliveryTime) e.deliveryTime = 'Bắt buộc';
+        if (!form.deliveryHour) e.deliveryTime = 'Bắt buộc';
         setErrors(e);
         return Object.keys(e).length === 0;
     }
@@ -105,53 +114,68 @@ export default function CreateOrder() {
         reader.readAsDataURL(file);
     }
 
-    function handleSubmit(e: React.FormEvent) {
+    async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         if (!validate()) {
             toast.error('Vui lòng điền đầy đủ thông tin bắt buộc');
             return;
         }
 
-        const deliveryDateTime = new Date(`${form.deliveryDate}T${form.deliveryTime || '00:00'}`).toISOString();
-        const finalProductType = form.productType === 'Khác' ? form.productTypeCustom : form.productType;
-        const rawOrderValue = Number(form.orderValue.replace(/\D/g, ''));
-        const rawDeposit = Number(form.deposit.replace(/\D/g, ''));
+        setSubmitting(true);
+        try {
+            const timeStr = form.deliveryHour ? `${form.deliveryHour.padStart(2, '0')}:${(form.deliveryMinute || '00').padStart(2, '0')}` : '00:00';
+            const deliveryDateTime = new Date(`${form.deliveryDate}T${timeStr}`).toISOString();
+            const finalProductType = form.productType === 'Khác' ? form.productTypeCustom : form.productType;
+            const rawOrderValue = Number(form.orderValue.replace(/\D/g, ''));
+            const rawDeposit = Number(form.deposit.replace(/\D/g, ''));
 
-        saveOrder({
-            id: orderId,
-            customerName: form.customerName.trim(),
-            customerPhone: form.customerPhone.trim(),
-            customerSource: form.customerSource,
-            productType: finalProductType,
-            productDetails: form.productDetails,
-            orderValue: rawOrderValue,
-            deposit: rawDeposit,
-            deliveryDateTime,
-            status: 'new',
-            floristId: form.floristId,
-            shipperId: form.shipperId,
-            notes: form.notes,
-            flowerImage: form.flowerImage,
-            createdAt: new Date().toISOString(),
-            createdBy: user?.name,
-        });
+            await saveOrder({
+                id: orderId,
+                customerName: form.customerName.trim(),
+                customerPhone: form.customerPhone.trim(),
+                customerSource: form.customerSource,
+                productType: finalProductType,
+                productDetails: form.productDetails,
+                orderValue: rawOrderValue,
+                deposit: rawDeposit,
+                deliveryDateTime,
+                status: 'new',
+                floristId: form.floristId,
+                shipperId: form.shipperId,
+                notes: form.notes,
+                flowerImage: form.flowerImage,
+                createdAt: new Date().toISOString(),
+                createdBy: user?.name,
+            });
 
-        toast.success('Tạo đơn hàng thành công! 🌸');
-        navigate('/orders');
+            toast.success('Tạo đơn hàng thành công! 🌸');
+            navigate('/orders');
+        } catch (err) {
+            console.error('Lỗi khi lưu đơn hàng:', err);
+            toast.error('Không thể lưu đơn hàng. Kiểm tra kết nối mạng hoặc quyền truy cập Firebase.');
+        } finally {
+            setSubmitting(false);
+        }
     }
+
+    if (settingsLoading || empsLoading || !orderId) return (
+        <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-gray-400 animate-pulse">Đang định cấu hình...</div>
+        </div>
+    );
 
     if (!settings) return null;
 
     return (
-        <div className="max-w-2xl mx-auto p-6 pb-20">
-            <div className="flex items-center gap-3 mb-6">
+        <div className="max-w-2xl mx-auto p-4 md:p-6 lg:p-8 pb-24">
+            <div className="flex items-center gap-3 mb-8">
                 <button
                     onClick={() => navigate(-1)}
-                    className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                    className="p-2.5 rounded-xl hover:bg-gray-100 transition-colors"
                 >
-                    <ArrowLeft size={18} className="text-gray-600" />
+                    <ArrowLeft size={20} className="text-gray-400" />
                 </button>
-                <h1 className="text-2xl font-bold text-gray-900">Tạo Đơn Hàng Mới</h1>
+                <h1 className="text-2xl font-bold text-gray-900 leading-tight">Tạo Đơn Hàng Mới</h1>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -161,20 +185,31 @@ export default function CreateOrder() {
                         1. Thông tin đơn hàng
                     </h2>
 
-                    {/* Order ID */}
-                    <div>
-                        <label className={labelClass()}>ID Đơn hàng</label>
-                        <input
-                            type="text"
-                            value={orderId}
-                            readOnly
-                            className="w-full border border-gray-100 bg-gray-50 rounded-xl px-3 py-2.5 text-sm text-gray-400 font-mono cursor-not-allowed"
-                        />
+                    {/* Order ID + Creator */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className={labelClass()}>ID Đơn hàng</label>
+                            <input
+                                type="text"
+                                value={orderId}
+                                readOnly
+                                className="w-full border border-gray-100 bg-gray-50 rounded-xl px-4 h-11 text-sm text-gray-400 font-mono cursor-not-allowed"
+                            />
+                        </div>
+                        <div>
+                            <label className={labelClass()}>Người tạo đơn</label>
+                            <input
+                                type="text"
+                                value={user?.name || '—'}
+                                readOnly
+                                className="w-full border border-gray-100 bg-gray-50 rounded-xl px-4 h-11 text-sm text-gray-500 font-medium cursor-not-allowed"
+                            />
+                        </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="flex gap-4">
-                            <div className="flex-1">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div className="space-y-4">
+                            <div>
                                 <label className={labelClass()}>Tên khách hàng *</label>
                                 <input
                                     type="text"
@@ -183,9 +218,9 @@ export default function CreateOrder() {
                                     placeholder="Tên khách"
                                     className={inputClass(!!errors.customerName)}
                                 />
-                                {errors.customerName && <p className="text-xs text-red-500 mt-1">{errors.customerName}</p>}
+                                {errors.customerName && <p className="text-[10px] text-red-500 mt-1 font-bold">{errors.customerName}</p>}
                             </div>
-                            <div className="flex-1">
+                            <div>
                                 <label className={labelClass()}>SĐT (tùy chọn)</label>
                                 <input
                                     type="text"
@@ -201,7 +236,7 @@ export default function CreateOrder() {
                             <select
                                 value={form.customerSource}
                                 onChange={e => set('customerSource', e.target.value)}
-                                className={inputClass()}
+                                className={selectClass()}
                             >
                                 {settings.sources.map(s => <option key={s} value={s}>{s}</option>)}
                                 {!settings.sources.includes('Khác') && <option value="Khác">Khác</option>}
@@ -217,7 +252,7 @@ export default function CreateOrder() {
                                 <select
                                     value={form.productType}
                                     onChange={e => set('productType', e.target.value)}
-                                    className={inputClass()}
+                                    className={selectClass()}
                                 >
                                     {settings.productTypes.map(t => <option key={t} value={t}>{t}</option>)}
                                     {!settings.productTypes.includes('Khác') && <option value="Khác">Khác</option>}
@@ -289,14 +324,29 @@ export default function CreateOrder() {
                             {errors.deliveryDate && <p className="text-xs text-red-500 mt-1">{errors.deliveryDate}</p>}
                         </div>
                         <div>
-                            <label className={labelClass()}>Giờ nhận *</label>
-                            <input
-                                type="time"
-                                value={form.deliveryTime}
-                                onChange={e => set('deliveryTime', e.target.value)}
-                                className={inputClass(!!errors.deliveryTime)}
-                            />
-                            {errors.deliveryTime && <p className="text-xs text-red-500 mt-1">{errors.deliveryTime}</p>}
+                            <label className={labelClass()}>Giờ nhận * <span className="normal-case font-normal text-gray-400">(24h)</span></label>
+                            <div className={`flex gap-2 ${errors.deliveryTime ? 'ring-1 ring-red-400 rounded-xl' : ''}`}>
+                                <select
+                                    value={form.deliveryHour}
+                                    onChange={e => { set('deliveryHour', e.target.value); setErrors(er => { const n = { ...er }; delete n.deliveryTime; return n; }); }}
+                                    className={selectClass(!!errors.deliveryTime)}
+                                >
+                                    <option value="">Giờ</option>
+                                    {Array.from({ length: 24 }, (_, i) => (
+                                        <option key={i} value={String(i)}>{String(i).padStart(2, '0')}h</option>
+                                    ))}
+                                </select>
+                                <select
+                                    value={form.deliveryMinute}
+                                    onChange={e => set('deliveryMinute', e.target.value)}
+                                    className={selectClass()}
+                                >
+                                    {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map(m => (
+                                        <option key={m} value={m}>{m} phút</option>
+                                    ))}
+                                </select>
+                            </div>
+                            {errors.deliveryTime && <p className="text-xs text-red-500 mt-1">Bắt buộc chọn giờ nhận</p>}
                         </div>
                     </div>
 
@@ -382,19 +432,20 @@ export default function CreateOrder() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center justify-end gap-3 pt-2">
+                <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-6 border-t border-gray-100">
                     <button
                         type="button"
                         onClick={() => navigate(-1)}
-                        className="px-6 py-2.5 border border-gray-200 text-gray-700 bg-white rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
+                        className="w-full sm:w-auto px-10 h-12 border border-gray-200 text-gray-700 bg-white rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors shadow-sm"
                     >
                         Hủy bỏ
                     </button>
                     <button
                         type="submit"
-                        className="px-8 py-2.5 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-medium transition-colors shadow-md"
+                        disabled={submitting}
+                        className="w-full sm:w-auto px-12 h-12 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-gray-200 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                        Tạo đơn hàng
+                        {submitting ? 'Đang lưu...' : 'Tạo đơn hàng'}
                     </button>
                 </div>
             </form>

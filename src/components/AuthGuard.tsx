@@ -6,21 +6,29 @@ import toast from 'react-hot-toast';
 interface AuthGuardProps {
     children: React.ReactNode;
     adminOnly?: boolean;
+    adminOrLeadOnly?: boolean;
     floristDisallowed?: boolean;
 }
 
-export default function AuthGuard({ children, adminOnly = false, floristDisallowed = false }: AuthGuardProps) {
+export default function AuthGuard({ children, adminOnly = false, adminOrLeadOnly = false, floristDisallowed = false }: AuthGuardProps) {
     const { user, isAdmin } = useAuth();
 
     if (!user) {
         return <Navigate to="/login" replace />;
     }
 
+    const isLead = user.role === 'lead_florist';
+
     if (adminOnly && !isAdmin) {
-        // Show toast via effect — but since this is a render we use a workaround
-        // Schedule the toast outside render cycle
         setTimeout(() => {
             toast.error('Bạn không có quyền truy cập trang này');
+        }, 0);
+        return <Navigate to="/orders" replace />;
+    }
+
+    if (adminOrLeadOnly && !isAdmin && !isLead) {
+        setTimeout(() => {
+            toast.error('Chỉ Quản trị viên hoặc Thợ chính mới có quyền truy cập');
         }, 0);
         return <Navigate to="/orders" replace />;
     }

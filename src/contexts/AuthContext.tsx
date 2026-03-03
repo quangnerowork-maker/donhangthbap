@@ -4,7 +4,7 @@ import { getSession, setSession, clearSession, login as dbLogin } from '../lib/d
 
 interface AuthContextType {
     user: Employee | null;
-    login: (username: string, password: string) => boolean;
+    login: (username: string, password: string) => Promise<Employee | null>;
     logout: () => void;
     isAdmin: boolean;
 }
@@ -14,14 +14,14 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<Employee | null>(() => getSession());
 
-    const login = useCallback((username: string, password: string): boolean => {
-        const emp = dbLogin(username, password);
+    const login = useCallback(async (username: string, password: string): Promise<Employee | null> => {
+        const emp = await dbLogin(username, password);
         if (emp) {
             setSession(emp);
             setUser(emp);
-            return true;
+            return emp;
         }
-        return false;
+        return null;
     }, []);
 
     const logout = useCallback(() => {
